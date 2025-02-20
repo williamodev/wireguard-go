@@ -101,18 +101,26 @@ func (peer *Peer) SendHandshakeInitiation(isRetry bool) error {
 		peer.timers.handshakeAttempts.Store(0)
 	}
 
-	peer.handshake.mutex.RLock()
-	if time.Since(peer.handshake.lastSentHandshake) < RekeyTimeout {
-		peer.handshake.mutex.RUnlock()
-		return nil
+	attempt := peer.timers.handshakeAttempts.Load()
+	switch attempt {
+	case 0:
+		if peer.isHandshakeTooRecent(RekeyFirstAuth) {
+			return nil
+		}
+	case 1:
+		if peer.isHandshakeTooRecent(RekeySecondAuth) {
+			return nil
+		}
+	case 2:
+		if peer.isHandshakeTooRecent(RekeyThirdAuth) {
+			return nil
+		}
+	default:
+		if peer.isHandshakeTooRecent(RekeyTimeout) {
+			return nil
+		}
 	}
-	peer.handshake.mutex.RUnlock()
 
-	peer.handshake.mutex.Lock()
-	if time.Since(peer.handshake.lastSentHandshake) < RekeyTimeout {
-		peer.handshake.mutex.Unlock()
-		return nil
-	}
 	peer.handshake.lastSentHandshake = time.Now()
 	peer.handshake.mutex.Unlock()
 
@@ -140,6 +148,23 @@ func (peer *Peer) SendHandshakeInitiation(isRetry bool) error {
 	peer.timersHandshakeInitiated()
 
 	return err
+}
+
+func (peer *Peer) isHandshakeTooRecent(timeout time.Duration) bool {
+	peer.handshake.mutex.RLock()
+	if time.Since(peer.handshake.lastSentHandshake) < timeout {
+		peer.handshake.mutex.RUnlock()
+		return true
+	}
+	peer.handshake.mutex.RUnlock()
+
+	peer.handshake.mutex.Lock()
+	if time.Since(peer.handshake.lastSentHandshake) < timeout {
+		peer.handshake.mutex.Unlock()
+		return true
+	}
+
+	return false
 }
 
 func (peer *Peer) SendHandshakeResponse() error {
